@@ -3,6 +3,7 @@ import numpy as np
 import scipy
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy.fft as fft
 from scipy import ndimage
 from sklearn.svm import LinearSVC
 from sklearn.ensemble import RandomForestClassifier
@@ -15,6 +16,7 @@ from sklearn.svm import SVC
 from sklearn.model_selection import StratifiedKFold
 from imblearn.over_sampling import SMOTE
 from sklearn.preprocessing import normalize
+import peakutils
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -111,8 +113,11 @@ def model_evaluator(X, y, model, n_splits=10):
 
 
 def spectrum_getter(X):
-    Spectrum = scipy.fft(X, n=X.size)
+    Spectrum = fft.fft(X, n=X.size)
     return np.abs(Spectrum)
+
+def fre_getter(X):
+    return fft.fftfreq(len(X))
 
 def detrender_normalizer(X):
     flux1 = X
@@ -124,20 +129,21 @@ def detrender_normalizer(X):
 
 # Raw data
 extrain = pd.read_csv('Data/ExoTrain.csv')
-extrain, extest = np.split(extrain, [int(0.80*len(extrain))])
+extest = pd.read_csv('Data/ExoTest.csv')
 
+print ("a")
 # Detrending data to make box-fitting possible.
 extrain.iloc[:,1:] = extrain.iloc[:,1:].apply(detrender_normalizer,axis=1)
 extest.iloc[:,1:] = extest.iloc[:,1:].apply(detrender_normalizer,axis=1)
-
+print ("b")
 # Removing upper outliers, because we don't need them.
 extrain.iloc[:,1:] = reduce_upper_outliers(extrain.iloc[:,1:])
 extest.iloc[:,1:] = reduce_upper_outliers(extest.iloc[:,1:])
+print ("c")
 
 # These X and y are input and output of the training data which is processed till now.
 X = extrain.drop('LABEL', axis=1)
-y = extrain.LABEL
- 
+y = extrain.LABEL 
 
 # Applying FFT to get a trend in the frequency distribution in the data as well.
 X_train = extrain.drop('LABEL', axis=1)
@@ -146,11 +152,62 @@ y_train = extrain.LABEL
 X_test = extest.drop('LABEL', axis=1)
 y_test = extest.LABEL
 
+np.save("y_train",y_train.values)
+np.save("y_test",y_test.values)
+
+np.save("reduced_train_x",X_train.values)
+np.save("reduced_test_x",X_test.values)
+
 new_X_train = X_train.apply(spectrum_getter,axis=1)
 new_X_test = X_test.apply(spectrum_getter,axis=1)
-
+print ("d")
 X = new_X_train
 y = y_train
+
+np.save("fft_train_x",new_X_train.values)
+np.save("fft_test_x",new_X_test.values)
+
+
+
+
+new_X_train = np.load("fft_train_x.npy")
+
+
+for i in range(len(new_X_train)):
+    cb = new_X_train[i][:int(len(new_X_train[i])/2)]
+    freq = [gg for gg in range(len(cb))]
+    print (cb)
+    indexes = peakutils.indexes(cb, thres=0.6, min_dist=0)
+    print (indexes)
+    diff = np.array([indexes[i+1]-indexes[i] for i in range(len(indexes)-1)])
+    print (diff)
+    mean_diff = np.mean(diff)
+    var_diff = (np.var(diff))**0.5
+    print (mean_diff)
+    x = [float(diff[i])/mean_diff for i in range(len(diff))]
+    print (x)
+    if len(x)<=7:
+        print ("exo")
+    else:
+        if var_diff <= (mean_diff/2):
+            min_dist = mean_diff - var_diff
+            max_dist = mean_diff + var_diff
+            print (min_dist,max_dist)
+            print (np.sum(x))
+            if np.sum(x)<=max_dist and np.sum(x)>=min_dist:
+                print ("exo")
+            else:
+                print ("not exo")
+        else:
+            print ("not exo")
+    # print (new_X_train[i][indexes])
+    # peakutils.plot(x,new_X_train[i],indexes)
+    print (i)
+
+# [ 333  693 1234 1600]
+
+# interpolatedIndexes = peakutils.interpolate(range(0, len(cb)), cb, ind=indexes)
+# [  332.61234263   694.94831376  1231.92840845  1600.52446335]
 
 X_final_test = new_X_test
 y_final_test = y_test
